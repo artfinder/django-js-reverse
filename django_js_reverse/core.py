@@ -33,51 +33,15 @@ def prepare_url_list(urlresolver, namespace_path='', namespace=''):
     """
     returns list of tuples [(<url_name>, <url_patern_tuple> ), ...]
     """
-    exclude_ns = getattr(settings, 'JS_REVERSE_EXCLUDE_NAMESPACES', JS_EXCLUDE_NAMESPACES)
-    include_only_ns = getattr(settings, 'JS_REVERSE_INCLUDE_ONLY_NAMESPACES', JS_INCLUDE_ONLY_NAMESPACES)
 
-    if exclude_ns and include_only_ns:
-        raise ImproperlyConfigured(
-            'Neither use JS_REVERSE_EXCLUDE_NAMESPACES nor JS_REVERSE_INCLUDE_ONLY_NAMESPACES setting')
+    for url_name in urlresolver.reverse_dict.keys():
+        if isinstance(url_name, (text_type, str)):
+            url_patterns = []
+            for url_pattern in urlresolver.reverse_dict.getlist(url_name):
+                url_patterns += [
+                    [namespace_path + pat[0], pat[1]] for pat in url_pattern[0]]
 
-    if namespace[:-1] in exclude_ns:
-        return
-
-    include_only_allow = True  # include_only state varible
-
-    if include_only_ns != []:
-        # True mean that ns passed the test
-        in_on_empty_ns = False
-        in_on_is_in_list = False
-        in_on_null = False
-
-        # Test urls without ns
-        if namespace == '' and '' in include_only_ns:
-            in_on_empty_ns = True
-
-        # check if nestead ns isn't subns of include_only ns
-        # e.g. ns = "foo:bar" include_only = ["foo"] -> this ns will be used
-        # works for ns = "lorem:ipsum:dolor" include_only = ["lorem:ipsum"]
-        # ns "lorem" will be ignored but "lorem:ipsum" & "lorem:ipsum:.." won't
-        for ns in include_only_ns:
-            if ns != "" and namespace[:-1].startswith(ns):
-                in_on_is_in_list = True
-                break
-
-        # Test if isn't used "\0" flag
-        # use "foo\0" to add urls just from "foo" not from subns "foo:bar"
-        if namespace[:-1] + '\0' in include_only_ns:
-            in_on_null = True
-
-        include_only_allow = in_on_empty_ns or in_on_is_in_list or in_on_null
-
-    if include_only_allow:
-        for url_name in urlresolver.reverse_dict.keys():
-            if isinstance(url_name, (text_type, str)):
-                url_patterns = []
-                for url_pattern in urlresolver.reverse_dict.getlist(url_name):
-                    url_patterns += [
-                        [namespace_path + pat[0], pat[1]] for pat in url_pattern[0]]
+            if should_include_url(namespace, url_name):
                 yield [namespace + url_name, url_patterns]
 
     for inner_ns, (inner_ns_path, inner_urlresolver) in \
@@ -131,6 +95,44 @@ def _safe_json(obj):
     )
 
 
+def should_include_url(namespace, url_name):
+    exclude_ns = getattr(settings, 'JS_REVERSE_EXCLUDE_NAMESPACES', JS_EXCLUDE_NAMESPACES)
+    include_only_ns = getattr(settings, 'JS_REVERSE_INCLUDE_ONLY_NAMESPACES', JS_INCLUDE_ONLY_NAMESPACES)
+    exclude_names = getattr(settings, 'JS_REVERSE_EXCLUDE_NAMES', JS_EXCLUDE_NAMESPACES)
+    include_only_names = getattr(settings, 'JS_REVERSE_INCLUDE_ONLY_NAMES', JS_INCLUDE_ONLY_NAMESPACES)
+
+    if exclude_ns and include_only_ns:
+        raise ImproperlyConfigured(
+            'Neither use JS_REVERSE_EXCLUDE_NAMESPACES nor JS_REVERSE_INCLUDE_ONLY_NAMESPACES setting')
+
+    if namespace + url_name in exclude_names:
+        return False
+
+    if namespace + url_name in include_only_names:
+        return True
+
+    if exclude_ns and namespace[:-1] in exclude_ns:
+        return False
+
+    if include_only_ns and namespace[:-1] in include_only_ns:
+        return True
+
+    for ns in include_only_ns:
+        if ns.endswith('\0'):
+            if namespace[:-1] == ns[:-1]:
+                return True
+
+    if not namespace.endswith('\0'):
+        for ns in include_only_ns:
+            if ns != "" and namespace[:-1].startswith(ns):
+                return True
+
+    if include_only_ns:
+        return False
+
+    return True
+
+
 def generate_js(default_urlresolver):
     js_var_name = getattr(settings, 'JS_REVERSE_JS_VAR_NAME', JS_VAR_NAME)
     if not JS_IDENTIFIER_RE.match(js_var_name.upper()):
@@ -143,10 +145,10 @@ def generate_js(default_urlresolver):
             'JS_REVERSE_JS_GLOBAL_OBJECT_NAME setting "%s" is not a valid javascript identifier.' % (
                 js_global_object_name))
 
-    minfiy = getattr(settings, 'JS_REVERSE_JS_MINIFY', JS_MINIFY)
-    if not isinstance(minfiy, bool):
+    minify = getattr(settings, 'JS_REVERSE_JS_MINIFY', JS_MINIFY)
+    if not isinstance(minify, bool):
         raise ImproperlyConfigured(
-            'JS_REVERSE_JS_MINIFY setting "%s" is not a valid. Needs to be set to True or False.' % (minfiy))
+            'JS_REVERSE_JS_MINIFY setting "%s" is not a valid. Needs to be set to True or False.' % (minify))
 
     script_prefix_via_config = getattr(settings, 'JS_REVERSE_SCRIPT_PREFIX', None)
     if script_prefix_via_config:
@@ -162,6 +164,6 @@ def generate_js(default_urlresolver):
         'js_name': '.'.join([js_global_object_name, js_var_name]),
     })
 
-    if minfiy:
+    if minify:
         js_content = rjsmin.jsmin(js_content)
     return js_content
