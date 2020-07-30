@@ -2,58 +2,63 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+import io
+import json
 import os
+import re
+import subprocess
 import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..') + os.sep)
-os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
-
 import unittest
-import warnings
 
 import django
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.template import Context, RequestContext, Template
-from django.test import TestCase
-from django.test.client import Client
-from django.test.utils import override_settings
 from django.utils.encoding import smart_str
-from selenium.webdriver.phantomjs.webdriver import WebDriver
+from helper import is_django_ver_gte_2
 from utils import script_prefix
 
-# Raise errors on DeprecationWarnings
-#warnings.simplefilter('error', DeprecationWarning)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..') + os.sep)
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+from django.test import TestCase, RequestFactory  # noqa: E402 isort:skip
+from django.test.client import Client  # noqa: E402 isort:skip
+from django.test.utils import override_settings  # noqa: E402 isort:skip
 
 
 class AbstractJSReverseTestCase(object):
     client = Client()
-    selenium = WebDriver()
 
     @classmethod
     def setUpClass(cls):
         if hasattr(django, 'setup'):
             # for django >= 1.7
             django.setup()
-        cls.selenium = WebDriver()
         super(AbstractJSReverseTestCase, cls).setUpClass()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.selenium.quit()
-        super(AbstractJSReverseTestCase, cls).tearDownClass()
+    def assertEqualJSEval(self, js, url_call, expected_url):
+        script = '{}return {};'.format(js, url_call)
+        module = 'console.log(new Function({})());'.format(json.dumps(script))
+        stdout = (
+            subprocess
+            .check_output(['node', '-e', module.encode('utf8')])
+            .decode('utf8')
+        )
+        self.assertEqual(re.sub(r'\n$', '', stdout), expected_url)
 
-    def assertEqualJSUrlEval(self, url_call, expected_url):
-        response = self.client.post('/jsreverse/')
-        self.assertEqual(self.selenium.execute_script('%s return %s;' % (smart_str(response.content), url_call)),
-                         expected_url)
+    def assertEqualJSUrlEval(self, *args, **kwargs):
+        js = smart_str(self.client.post('/jsreverse/').content)
+        self.assertEqualJSEval(js, *args, **kwargs)
 
 
-@override_settings(ROOT_URLCONF='tests.test_urls')
+@override_settings(ROOT_URLCONF='django_js_reverse.tests.test_urls')
 class JSReverseViewTestCaseMinified(AbstractJSReverseTestCase, TestCase):
     def test_view_no_url_args(self):
         self.assertEqualJSUrlEval('Urls.test_no_url_args()', '/test_no_url_args/')
+
+    def test_camel_case(self):
+        self.assertEqualJSUrlEval('Urls.testNoUrlArgs()', '/test_no_url_args/')
 
     def test_view_one_url_arg(self):
         self.assertEqualJSUrlEval('Urls.test_one_url_args("arg_one")', '/test_one_url_args/arg_one/')
@@ -150,9 +155,9 @@ class JSReverseViewTestCaseMinified(AbstractJSReverseTestCase, TestCase):
     @override_settings(JS_REVERSE_INCLUDE_ONLY_NAMESPACES=['nsno:nsdn0:ns1'])
     def test_include_namespace_and_name(self):
         response = self.client.get('/jsreverse/')
-        self.assertContains(response, '\'nsno:nsdn0:ns1:test_one_url_args', status_code=200)
-        self.assertContains(response, '\'ns1:test_no_url_args', status_code=200)
-        self.assertNotContains(response, '\'ns1:test_one_url_args', status_code=200)
+        self.assertContains(response, '\"nsno:nsdn0:ns1:test_one_url_args', status_code=200)
+        self.assertContains(response, '\"ns1:test_no_url_args', status_code=200)
+        self.assertNotContains(response, '\"ns1:test_one_url_args', status_code=200)
 
     @override_settings(JS_REVERSE_INCLUDE_ONLY_NAMESPACES=['nsno\0'])
     def test_only_namespaces_without_subnss(self):
@@ -161,7 +166,7 @@ class JSReverseViewTestCaseMinified(AbstractJSReverseTestCase, TestCase):
                                   '/nsno/ns1/test_two_url_args/arg_one-arg_two/')
         self.assertNotContains(response, 'nsno:nsdn0', status_code=200)
 
-    def test_script_prefix(self):
+    def test_script_prefix_v1(self):
         with script_prefix('/foobarlala/'):
             self.assertEqualJSUrlEval('Urls["nestedns:ns1:test_two_url_args"]("arg_one", "arg_two")',
                                       '/foobarlala/nestedns/ns1/test_two_url_args/arg_one-arg_two/')
@@ -194,9 +199,14 @@ class JSReverseViewTestCaseMinified(AbstractJSReverseTestCase, TestCase):
         self.assertEqualJSUrlEval('Urls.test_two_url_args(0, 5.5)', '/test_two_url_args/0-5.5/')
         self.assertEqualJSUrlEval('Urls.test_two_url_args(0.00001, 5.5)', '/test_two_url_args/0.00001-5.5/')
 
+    def test_django_path_syntax(self):
+        if is_django_ver_gte_2():
+            self.assertEqualJSUrlEval('Urls.test_django_gte_2_path_syntax(42, "foo")',
+                                      '/test_django_gte_2_path_syntax/42/foo/')
+
 
 @override_settings(JS_REVERSE_JS_MINIFY=False)
-@override_settings(ROOT_URLCONF='tests.test_urls')
+@override_settings(ROOT_URLCONF='django_js_reverse.tests.test_urls')
 class JSReverseViewTestCaseNotMinified(JSReverseViewTestCaseMinified):
     def test_minification(self):
         js_not_minified = smart_str(self.client.post('/jsreverse/').content)
@@ -205,7 +215,7 @@ class JSReverseViewTestCaseNotMinified(JSReverseViewTestCaseMinified):
             self.assertTrue(len(js_minified) < len(js_not_minified))
 
 
-@override_settings(ROOT_URLCONF='tests.test_urls')
+@override_settings(ROOT_URLCONF='django_js_reverse.tests.test_urls')
 class JSReverseViewTestCaseGlobalObjectName(JSReverseViewTestCaseMinified):
     def test_global_object_name_default(self):
         js_content = smart_str(self.client.post('/jsreverse/').content)
@@ -222,26 +232,22 @@ class JSReverseViewTestCaseGlobalObjectName(JSReverseViewTestCaseMinified):
             self.client.post('/jsreverse/')
 
 
-@override_settings(ROOT_URLCONF='tests.test_urls')
+@override_settings(ROOT_URLCONF='django_js_reverse.tests.test_urls')
 class JSReverseStaticFileSaveTest(AbstractJSReverseTestCase, TestCase):
     def test_reverse_js_file_save(self):
         call_command('collectstatic_js_reverse')
 
         path = os.path.join(settings.STATIC_ROOT, 'django_js_reverse', 'js', 'reverse.js')
-        f = open(path)
+        f = io.open(path)
         content1 = f.read()
-        if hasattr(content1, 'decode'):
-            content1 = content1.decode()
 
         r2 = self.client.get('/jsreverse/')
-        content2 = r2.content
-        if hasattr(content2, 'decode'):
-            content2 = content2.decode()
+        content2 = r2.content.decode()
 
         self.assertEqual(len(content1), len(content2), 'Static file don\'t match http response content_1')
         self.assertEqual(content1, content2, 'Static file don\'t match http response content_2')
 
-        # test for excpetion if STATIC_ROOT is not set
+        # test for exception if STATIC_ROOT is not set
         with override_settings(STATIC_ROOT=None):
             with self.assertRaises(ImproperlyConfigured):
                 call_command('collectstatic_js_reverse')
@@ -251,26 +257,23 @@ class JSReverseStaticFileSaveTest(AbstractJSReverseTestCase, TestCase):
         with override_settings(JS_REVERSE_OUTPUT_PATH=js_output_path):
             call_command('collectstatic_js_reverse')
 
-            f = open(os.path.join(js_output_path, 'reverse.js'))
+            f = io.open(os.path.join(js_output_path, 'reverse.js'))
             content1 = f.read()
-            if hasattr(content1, 'decode'):
-                content1 = content1.decode()
 
             r2 = self.client.get('/jsreverse/')
-            content2 = r2.content
-            if hasattr(content2, 'decode'):
-                content2 = content2.decode()
+            content2 = r2.content.decode()
 
             self.assertEqual(len(content1), len(content2), 'Static file don\'t match http response content_1')
             self.assertEqual(content1, content2, 'Static file don\'t match http response content_2')
 
             # should not raise ImproperlyConfigured exception if STATIC_ROOT is not set
             with override_settings(STATIC_ROOT=None):
-                try:
-                    call_command('collectstatic_js_reverse')
-                except ImproperlyConfigured:
-                    self.fail(
-                        'should not raise ImproperlyConfigured exception if STATIC_ROOT is not set and JS_REVERSE_OUTPUT_PATH is set')
+                call_command('collectstatic_js_reverse')
+
+    def test_script_prefix_noslash(self):
+        script_prefix = '/test/foo/bar'
+        with override_settings(JS_REVERSE_SCRIPT_PREFIX=script_prefix):
+            self.assertEqualJSUrlEval('Urls.test_no_url_args()', '{0}/test_no_url_args/'.format(script_prefix))
 
     def test_script_prefix(self):
         script_prefix = '/test/foo/bar/'
@@ -278,14 +281,24 @@ class JSReverseStaticFileSaveTest(AbstractJSReverseTestCase, TestCase):
             self.assertEqualJSUrlEval('Urls.test_no_url_args()', '{0}test_no_url_args/'.format(script_prefix))
 
 
-@override_settings(ROOT_URLCONF='tests.test_urls')
+@override_settings(
+    ROOT_URLCONF='django_js_reverse.tests.test_urls',
+
+    TEMPLATE_CONTEXT_PROCESSORS=['django.core.context_processors.request'],
+)
 class JSReverseTemplateTagTest(AbstractJSReverseTestCase, TestCase):
     def test_tpl_tag_with_request_in_context(self):
-        context_instance = RequestContext(self.client.request)
+        request = RequestFactory().post('/jsreverse/')
+        request.urlconf = 'django_js_reverse.tests.test_urlconf_urls'
         tpl = Template('{% load js_reverse %}{% js_reverse_inline %}')
-        js_from_tag = tpl.render(context_instance)
-        js_from_view = smart_str(self.client.post('/jsreverse/').content)
-        self.assertEqual(js_from_tag, js_from_view)
+        js = tpl.render(RequestContext(request))
+        self.assertEqualJSEval(js, 'Urls.test_changed_urlconf()', '/test_changed_urlconf/')
+
+    def test_tpl_tag_with_dict_request_in_context(self):
+        request = {'urlconf': 'django_js_reverse.tests.test_urlconf_urls'}
+        tpl = Template('{% load js_reverse %}{% js_reverse_inline %}')
+        js = tpl.render(Context({'request': request}))
+        self.assertEqualJSEval(js, 'Urls.test_changed_urlconf()', '/test_changed_urlconf/')
 
     def test_tpl_tag_without_request_in_context(self):
         context_instance = Context()
@@ -293,6 +306,16 @@ class JSReverseTemplateTagTest(AbstractJSReverseTestCase, TestCase):
         js_from_tag = tpl.render(context_instance)
         js_from_view = smart_str(self.client.post('/jsreverse/').content)
         self.assertEqual(js_from_tag, js_from_view)
+
+    def test_tpl_tag_escape_entities(self):
+        context_instance = Context()
+        tpl = Template('{% load js_reverse %}{% js_reverse_inline %}')
+        js = tpl.render(context_instance)
+        self.assertIn(
+            '\\u003C/script\\u003E\\u003Cscript\\u003Econsole.log(\\u0026amp;)'
+            '\\u003C/script\\u003E\\u003C!--',
+            js,
+        )
 
 
 if __name__ == '__main__':

@@ -1,16 +1,25 @@
 # -*- coding: utf-8 -*-
+import json
 import re
 import sys
+from distutils.version import LooseVersion
 
+import django
 from django.conf import settings
-from django.core import urlresolvers
 from django.core.exceptions import ImproperlyConfigured
 from django.template import loader
+from django.utils.safestring import mark_safe
+from django.utils.encoding import force_text
 
 from . import rjsmin
 from .js_reverse_settings import (JS_EXCLUDE_NAMESPACES, JS_GLOBAL_OBJECT_NAME,
                                   JS_INCLUDE_ONLY_NAMESPACES, JS_MINIFY,
                                   JS_VAR_NAME)
+
+try:
+    from django import urls as urlresolvers
+except ImportError:
+    from django.core import urlresolvers
 
 if sys.version < '3':
     text_type = unicode  # NOQA
@@ -43,12 +52,47 @@ def prepare_url_list(urlresolver, namespace_path='', namespace=''):
         # if we have inner_ns_path, reconstruct a new resolver so that we can
         # handle regex substitutions within the regex of a namespace.
         if inner_ns_path:
-            inner_urlresolver = urlresolvers.get_ns_resolver(inner_ns_path,
-                                                             inner_urlresolver)
+            args = [inner_ns_path, inner_urlresolver]
+
+            # https://github.com/ierror/django-js-reverse/issues/65
+            if LooseVersion(django.get_version()) >= LooseVersion("2.0.6"):
+                args.append(tuple(urlresolver.pattern.converters.items()))
+
+            inner_urlresolver = urlresolvers.get_ns_resolver(*args)
             inner_ns_path = ''
 
         for x in prepare_url_list(inner_urlresolver, inner_ns_path, inner_ns):
             yield x
+
+
+def generate_json(default_urlresolver, script_prefix=None):
+    if script_prefix is None:
+        script_prefix = urlresolvers.get_script_prefix()
+
+    urls = sorted(list(prepare_url_list(default_urlresolver)))
+
+    return {
+        'urls': [
+            [
+                force_text(name),
+                [
+                    [force_text(path), [force_text(arg) for arg in args]]
+                    for path, args in patterns
+                ],
+            ] for name, patterns in urls
+        ],
+        'prefix': script_prefix,
+    }
+
+
+def _safe_json(obj):
+    return mark_safe(
+        json
+        .dumps(obj)
+        .replace('>', '\\u003E')
+        .replace('<', '\\u003C')
+        .replace('&', '\\u0026')
+    )
 
 
 def should_include_url(namespace, url_name):
@@ -114,11 +158,10 @@ def generate_js(default_urlresolver):
     else:
         script_prefix = urlresolvers.get_script_prefix()
 
+    data = generate_json(default_urlresolver, script_prefix)
     js_content = loader.render_to_string('django_js_reverse/urls_js.tpl', {
-        'urls': sorted(list(prepare_url_list(default_urlresolver))),
-        'url_prefix': script_prefix,
-        'js_var_name': js_var_name,
-        'js_global_object_name': js_global_object_name,
+        'data': _safe_json(data),
+        'js_name': '.'.join([js_global_object_name, js_var_name]),
     })
 
     if minify:

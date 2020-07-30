@@ -25,7 +25,7 @@ Overview
 --------
 
 Django JS Reverse is a small django app that makes url handling of
-`named urls <https://docs.djangoproject.com/en/dev/topics/http/urls/#naming-url-patterns>`_ in javascript easy and non-annoying..
+`named urls <https://docs.djangoproject.com/en/dev/topics/http/urls/#naming-url-patterns>`__ in javascript easy and non-annoying..
 
 For example you can retrieve a named url:
 
@@ -52,38 +52,56 @@ Result:
 Changelog
 _________
 
-0.7.3
-    New: Support for Django 1.10
+0.9.0
+    New: Support for Python 3.7
 
-    Chg: Renamed "production" branch to "master"
+    New: Support for Django 2.2
 
-    Fix: `#48 <https://github.com/ierror/django-js-reverse/issues/48>`_ - "Change False to 'window' in global object name in README."
-    Thank you `karamanolev <https://github.com/karamanolev>`_
+    New: Unit Tests Script prefix with no slash, changed URL Conf`#72 <https://github.com/ierror/django-js-reverse/issues/72>`__
+    Thank you `graingert <https://github.com/graingert>`__
 
-    Fix: `PR #45 <https://github.com/ierror/django-js-reverse/pull/45>`_ - "Fix: collectstatic_js_reverse usage message"
-    Thank you `ghedsouza <https://github.com/ghedsouza>`_
+    Fix: "ROOT_URLCONF not taken into account" `#73 <https://github.com/ierror/django-js-reverse/issues/73>`__ `#74 <https://github.com/ierror/django-js-reverse/issues/74>`__
+    Thank you `LuukOost <https://github.com/LuukOost>`__ and `graingert <https://github.com/graingert>`__
 
-    Fix: `PR #44 <https://github.com/ierror/django-js-reverse/pull/44>`_ - "Remove duplicate _get_url call"
-    Thank you `razh <https://github.com/razh>`_
+    Refactoring: "move template logic to view" `#64 <https://github.com/ierror/django-js-reverse/issues/64>`__
+    Thank you `graingert <https://github.com/graingert>`__
 
-0.7.2
-    Fix: `#42 <https://github.com/ierror/django-js-reverse/issues/42>`_ - "Templatetag js_reverse_inline breaks on Django 1.9"
-    Thank you `tommikaikkonen <https://github.com/tommikaikkonen>`_
+    Fix: "Now using LooseVersion instead of StrictVersion to avoid issues with rc releases" `#67 <https://github.com/ierror/django-js-reverse/issues/64>`__
+    Thank you `kavdev <https://github.com/kavdev>`__
 
-    Optimized imports
+0.8.2
+    Fix: A bug fix in Django 2.0.6 has broken django-js-reverse `#65 <https://github.com/ierror/django-js-reverse/issues/65>`__
+    Thank you `kavdev <https://github.com/kavdev>`__
 
-0.7.1
-    Fix: `#41 <https://github.com/ierror/django-js-reverse/issues/41>`_ - make it possible to use number 0 as url argument
+0.8.1
+    Fix: The tests folder of the `#53 <https://github.com/ierror/django-js-reverse/issues/53>`__ was still present in the build. => Added cleanup to the release make command.
+
+0.8.0
+    New: Support for Django 2.0: `#58 <https://github.com/ierror/django-js-reverse/issues/58>`__
+    Thank you `wlonk <https://github.com/wlonk>`__
+
+    Fix: `#53 <https://github.com/ierror/django-js-reverse/issues/53>`__ - Don't install the tests folder as a separate folder.  Moved inside the django_js_reverse namespace.
 
 
-`Full changelog <https://raw.githubusercontent.com/ierror/django-js-reverse/master/CHANGELOG>`_
+`Full changelog <https://raw.githubusercontent.com/ierror/django-js-reverse/master/CHANGELOG>`__
 
 
 Requirements
 ------------
 
--  Python (2.6, 2.7, 3.1, 3.3, 3.4, 3.5)
--  Django (1.5, 1.6, 1.7, 1.8, 1.9, 1.10)
++----------------+------------------------------------------+
+| Python version | Django versions                          |
++================+==========================================+
+| 3.7            | 2.2, 2.1, 2.0, 1.11, 1.10, 1.9, 1.8      |
++----------------+------------------------------------------+
+| 3.6            | 2.2, 2.1, 2.0, 1.11, 1.10, 1.9, 1.8      |
++----------------+------------------------------------------+
+| 3.5            | 2.2, 2.1, 2.0, 1.11, 1.10, 1.9, 1.8      |
++----------------+------------------------------------------+
+| 3.4            | 2.0, 1.11, 1.10, 1.9, 1.8, 1.7, 1.6, 1.5 |
++----------------+------------------------------------------+
+| 2.7            | 1.11, 1.10, 1.9, 1.8, 1.7, 1.6, 1.5      |
++----------------+------------------------------------------+
 
 
 Installation
@@ -107,7 +125,7 @@ Add ``'django_js_reverse'`` to your ``INSTALLED_APPS`` setting.
 
     INSTALLED_APPS = (
         ...
-        'django_js_reverse',        
+        'django_js_reverse',
     )
 
 
@@ -115,14 +133,18 @@ Usage as static file
 --------------------
 
 First generate static file by
+
 ::
+
     ./manage.py collectstatic_js_reverse
 
 If you change some urls or add an app and want to update the reverse.js file,
 run the command again.
 
 After this add the file to your template
+
 ::
+
     <script src="{% static 'django_js_reverse/js/reverse.js' %}"></script>
 
 
@@ -162,6 +184,13 @@ or, if you are using Django > 1.5
 Usage as template tag
 _____________________
 
+You can place the js_reverse JavaScript inline into your templates,
+however use of inline JavaScript is not recommended, because it
+will make it impossible to deploy a secure Content Security Policy.
+See `django-csp <https://django-csp.readthedocs.io/>`__
+
+::
+
     {% load js_reverse %}
 
     <script type="text/javascript" charset="utf-8">
@@ -187,7 +216,7 @@ notation instead:
     Urls['betterliving-get-house']('house', 12)
     Urls['namespace:betterliving-get-house']('house', 12)
 
-You can also pass javascript objects to match keyword aguments like the 
+You can also pass javascript objects to match keyword aguments like the
 examples bellow:
 
 ::
@@ -235,8 +264,8 @@ To exclude any namespaces from the generated javascript file, add them to the `J
 
 If you want to include only specific namespaces add them to the `JS_REVERSE_INCLUDE_ONLY_NAMESPACES` setting
 tips:
- * Use "" (empty string) for urls without namespace
- * Use "foo\0" to include urls just from "foo" namaspace and not from any subnamespaces (e.g. "foo:bar")
+* Use "" (empty string) for urls without namespace
+* Use "foo\0" to include urls just from "foo" namaspace and not from any subnamespaces (e.g. "foo:bar")
 
 ::
 
@@ -244,7 +273,9 @@ tips:
 
 If you run your application under a subpath, the collectstatic_js_reverse needs to take care of this.
 Define the prefix in your django settings:
+
 ::
+
    JS_REVERSE_SCRIPT_PREFIX = '/myprefix/'
 
 By default collectstatic_js_reverse writes its output (reverse.js) to your project's STATIC_ROOT.
@@ -265,13 +296,13 @@ Running the test suite
 License
 -------
 
-`MIT <https://raw.github.com/ierror/django-js-reverse/develop/LICENSE>`_
+`MIT <https://raw.github.com/ierror/django-js-reverse/develop/LICENSE>`__
 
 
 Contact
 -------
 
-`@i_error <https://twitter.com/i_error>`_
+`@i_error <https://twitter.com/i_error>`__
 
 --------------
 
